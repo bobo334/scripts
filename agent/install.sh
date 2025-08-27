@@ -23,6 +23,12 @@ info() {
 is_alpine() {
     if [ -f /etc/alpine-release ]; then
         return 0
+    elif [ -f /etc/os-release ] && grep -qi alpine /etc/os-release; then
+        return 0
+    elif command -v apk >/dev/null 2>&1 && ! command -v apt >/dev/null 2>&1 && ! command -v yum >/dev/null 2>&1; then
+        return 0
+    elif uname -v | grep -qi alpine; then
+        return 0
     else
         return 1
     fi
@@ -189,6 +195,26 @@ EOF
     rc-update add nezha-agent default
 }
 
+install_systemd_service() {
+    if is_alpine; then
+        "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1 || true
+        _cmd="env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
+        if ! eval "$_cmd"; then
+            err "Install nezha-agent service failed"
+            "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1 || true
+            exit 1
+        fi
+    else
+        sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+        _cmd="sudo env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
+        if ! eval "$_cmd"; then
+            err "Install nezha-agent service failed"
+            sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+            exit 1
+        fi
+    fi
+}
+
 install() {
     echo "Installing..."
 
@@ -252,22 +278,16 @@ install() {
             install_openrc_service
             service nezha-agent start
         else
-            "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+            "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1 || true
             _cmd="env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
             if ! eval "$_cmd"; then
                 err "Install nezha-agent service failed"
-                "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+                "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1 || true
                 exit 1
             fi
         fi
     else
-        sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
-        _cmd="sudo env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
-        if ! eval "$_cmd"; then
-            err "Install nezha-agent service failed"
-            sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
-            exit 1
-        fi
+        install_systemd_service
     fi
 
     success "nezha-agent successfully installed"
