@@ -20,6 +20,14 @@ info() {
     printf "${yellow}%s${plain}\n" "$*"
 }
 
+is_alpine() {
+    if [ -f /etc/alpine-release ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 sudo() {
     myEUID=$(id -ru)
     if [ "$myEUID" -ne 0 ]; then
@@ -48,6 +56,10 @@ deps_check() {
 
     if [ "$_err" -ne 0 ]; then
         err "Missing dependencies:$missing. Please install them and try again."
+        if is_alpine; then
+            info "For Alpine Linux, you can install dependencies with:"
+            info "apk add curl unzip grep"
+        fi
         exit 1
     fi
 }
@@ -123,7 +135,6 @@ init() {
     deps_check
     env_check
 
-    ## China_IP
     if [ -z "$CN" ]; then
         geo_check
         if [ -n "$isCN" ]; then
@@ -144,7 +155,11 @@ install() {
     if [ -z "$CN" ]; then
         NZ_AGENT_URL="https://${GITHUB_URL}/nezhahq/agent/releases/latest/download/nezha-agent_${os}_${os_arch}.zip"
     else
-        _version=$(curl -m 10 -sL "https://gitee.com/api/v5/repos/naibahq/agent/releases/latest" | awk -F '"' '{for(i=1;i<=NF;i++){if($i=="tag_name"){print $(i+2)}}}')
+        if is_alpine; then
+            _version=$(curl -m 10 -sL "https://gitee.com/api/v5/repos/naibahq/agent/releases/latest" | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+        else
+            _version=$(curl -m 10 -sL "https://gitee.com/api/v5/repos/naibahq/agent/releases/latest" | awk -F '"' '{for(i=1;i<=NF;i++){if($i=="tag_name"){print $(i+2)}}}')
+        fi
         NZ_AGENT_URL="https://${GITHUB_URL}/naibahq/agent/releases/download/${_version}/nezha-agent_${os}_${os_arch}.zip"
     fi
 
@@ -159,14 +174,23 @@ install() {
         exit 1
     fi
 
-    sudo mkdir -p $NZ_AGENT_PATH
-
-    sudo unzip -qo /tmp/nezha-agent_${os}_${os_arch}.zip -d $NZ_AGENT_PATH &&
-        sudo rm -rf /tmp/nezha-agent_${os}_${os_arch}.zip
+    if is_alpine; then
+        mkdir -p $NZ_AGENT_PATH
+        unzip -qo /tmp/nezha-agent_${os}_${os_arch}.zip -d $NZ_AGENT_PATH &&
+            rm -rf /tmp/nezha-agent_${os}_${os_arch}.zip
+    else
+        sudo mkdir -p $NZ_AGENT_PATH
+        sudo unzip -qo /tmp/nezha-agent_${os}_${os_arch}.zip -d $NZ_AGENT_PATH &&
+            sudo rm -rf /tmp/nezha-agent_${os}_${os_arch}.zip
+    fi
 
     path="$NZ_AGENT_PATH/config.yml"
     if [ -f "$path" ]; then
-        random=$(LC_ALL=C tr -dc a-z0-9 </dev/urandom | head -c 5)
+        if is_alpine; then
+            random=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 5)
+        else
+            random=$(LC_ALL=C tr -dc a-z0-9 </dev/urandom | head -c 5)
+        fi
         path=$(printf "%s" "$NZ_AGENT_PATH/config-$random.yml")
     fi
 
@@ -182,11 +206,21 @@ install() {
 
     env="NZ_UUID=$NZ_UUID NZ_SERVER=$NZ_SERVER NZ_CLIENT_SECRET=$NZ_CLIENT_SECRET NZ_TLS=$NZ_TLS NZ_DISABLE_AUTO_UPDATE=$NZ_DISABLE_AUTO_UPDATE NZ_DISABLE_FORCE_UPDATE=$DISABLE_FORCE_UPDATE NZ_DISABLE_COMMAND_EXECUTE=$NZ_DISABLE_COMMAND_EXECUTE NZ_SKIP_CONNECTION_COUNT=$NZ_SKIP_CONNECTION_COUNT"
 
-    sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
-    _cmd="sudo env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
+    if is_alpine; then
+        "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+        _cmd="env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
+    else
+        sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+        _cmd="sudo env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
+    fi
+    
     if ! eval "$_cmd"; then
         err "Install nezha-agent service failed"
-        sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+        if is_alpine; then
+            "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+        else
+            sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+        fi
         exit 1
     fi
 
@@ -194,10 +228,17 @@ install() {
 }
 
 uninstall() {
-    find "$NZ_AGENT_PATH" -type f -name "*config*.yml" | while read -r file; do
-        sudo "$NZ_AGENT_PATH/nezha-agent" service -c "$file" uninstall
-        sudo rm "$file"
-    done
+    if is_alpine; then
+        find "$NZ_AGENT_PATH" -type f -name "*config*.yml" | while IFS= read -r file; do
+            "$NZ_AGENT_PATH/nezha-agent" service -c "$file" uninstall
+            rm "$file"
+        done
+    else
+        find "$NZ_AGENT_PATH" -type f -name "*config*.yml" | while read -r file; do
+            sudo "$NZ_AGENT_PATH/nezha-agent" service -c "$file" uninstall
+            sudo rm "$file"
+        done
+    fi
     info "Uninstallation completed."
 }
 
