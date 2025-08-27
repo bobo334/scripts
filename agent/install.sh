@@ -196,22 +196,12 @@ EOF
 }
 
 install_systemd_service() {
-    if is_alpine; then
-        "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1 || true
-        _cmd="env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
-        if ! eval "$_cmd"; then
-            err "Install nezha-agent service failed"
-            "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1 || true
-            exit 1
-        fi
-    else
+    sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
+    _cmd="sudo env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
+    if ! eval "$_cmd"; then
+        err "Install nezha-agent service failed"
         sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
-        _cmd="sudo env $env $NZ_AGENT_PATH/nezha-agent service -c $path install"
-        if ! eval "$_cmd"; then
-            err "Install nezha-agent service failed"
-            sudo "${NZ_AGENT_PATH}"/nezha-agent service -c "$path" uninstall >/dev/null 2>&1
-            exit 1
-        fi
+        exit 1
     fi
 }
 
